@@ -8,6 +8,7 @@
 #include <QHttpMultiPart>
 #include <QDateTime>
 #include <QUrlQuery>
+#include <QMimeDatabase>
 
 #define LOG_DATETIME QDateTime::currentDateTime().toString("yyyy/MM/dd hh:mm:ss")
 
@@ -157,9 +158,39 @@ void AccessAtProtocol::postWithImage(const QString &endpoint, const QString &pat
 
     QFileInfo info(path);
     QNetworkRequest request(QUrl(QString("%1/%2").arg(service(), endpoint)));
-    request.setRawHeader(QByteArray("Authorization"), QByteArray("Bearer ") + accessJwt().toUtf8());
     request.setHeader(QNetworkRequest::ContentTypeHeader,
                       QString("image/%1").arg(info.suffix().toLower()));
+    //    QNetworkRequest request(
+    //        QUrl(QString("%1/%2").arg(/*service()*/ "https://relog.tech", endpoint)));
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                         QNetworkRequest::AlwaysNetwork);
+    request.setAttribute(QNetworkRequest::CacheSaveControlAttribute, false);
+    request.setAttribute(QNetworkRequest::AuthenticationReuseAttribute, QNetworkRequest::Manual);
+    //    request.setAttribute(QNetworkRequest::DoNotBufferUploadDataAttribute, true);
+    request.setAttribute(QNetworkRequest::HttpPipeliningAllowedAttribute, false);
+    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
+    request.setAttribute(QNetworkRequest::SpdyAllowedAttribute, false);
+    request.setRawHeader(QByteArray("Accept"), QByteArray("*/*"));
+    //    request.setRawHeader(QByteArray("Cache-Control"), QByteArray("no-cache"));
+    request.setRawHeader(QByteArray("Authorization"), QByteArray("Bearer ") + accessJwt().toUtf8());
+    request.setHeader(QNetworkRequest::ContentTypeHeader, mime.mimeTypeForFile(info).name());
+    request.setTransferTimeout(10000);
+
+    qDebug() << "  QNetworkRequest::CacheLoadControlAttribute"
+             << request.attribute(QNetworkRequest::CacheLoadControlAttribute);
+    qDebug() << "  QNetworkRequest::CacheSaveControlAttribute"
+             << request.attribute(QNetworkRequest::CacheSaveControlAttribute);
+    qDebug() << "  QNetworkRequest::AuthenticationReuseAttribute"
+             << request.attribute(QNetworkRequest::AuthenticationReuseAttribute);
+    qDebug() << "  QNetworkRequest::DoNotBufferUploadDataAttribute"
+             << request.attribute(QNetworkRequest::DoNotBufferUploadDataAttribute);
+    qDebug() << "  QNetworkRequest::HttpPipeliningAllowedAttribute"
+             << request.attribute(QNetworkRequest::HttpPipeliningAllowedAttribute);
+    qDebug() << "  QNetworkRequest::Http2AllowedAttribute"
+             << request.attribute(QNetworkRequest::Http2AllowedAttribute);
+    qDebug() << "  QNetworkRequest::SpdyAllowedAttribute"
+             << request.attribute(QNetworkRequest::SpdyAllowedAttribute);
+    qDebug() << "  transferTimeout" << request.transferTimeout();
 
     QFile *file = new QFile(path);
     if (!file->open(QIODevice::ReadOnly)) {
@@ -168,9 +199,83 @@ void AccessAtProtocol::postWithImage(const QString &endpoint, const QString &pat
         delete file;
         return;
     }
+    //    request.setHeader(QNetworkRequest::ContentLengthHeader, file->size());
+    qDebug() << "  file->size()" << file->size();
 
-    QNetworkReply *reply = m_manager.post(request, file);
+    QNetworkReply *reply = m_manager->post(request, file->readAll());
     file->setParent(reply);
+    connect(reply, &QNetworkReply::finished, [=]() {
+        qDebug() << LOG_DATETIME << reply->error() << reply->url().toString();
+
+        bool success = false;
+        if (checkReply(reply)) {
+            success = parseJson(true, m_replyJson);
+        }
+        emit finished(success);
+
+        reply->deleteLater();
+    });
+    connect(reply, &QNetworkReply::uploadProgress, [=](qint64 bytesSent, qint64 bytesTotal) {
+        if (bytesTotal > 0) {
+            qDebug() << LOG_DATETIME << "uploadProgress : bytesSent" << bytesSent << "bytesTotal"
+                     << bytesTotal << (100 * bytesSent / bytesTotal);
+        } else {
+            qDebug() << LOG_DATETIME << "uploadProgress : bytesSent" << bytesSent << "bytesTotal";
+        }
+    });
+    connect(reply, &QNetworkReply::downloadProgress, [=](qint64 bytesReceived, qint64 bytesTotal) {
+        if (bytesTotal > 0) {
+            qDebug() << LOG_DATETIME << "downloadProgress : bytesReceived" << bytesReceived
+                     << "bytesTotal" << bytesTotal << (100 * bytesReceived / bytesTotal);
+        }
+    });
+    connect(reply, &QNetworkReply::encrypted, [=]() { qDebug() << LOG_DATETIME << "encrypted"; });
+    connect(reply, &QNetworkReply::errorOccurred, [=](QNetworkReply::NetworkError code) {
+        qDebug() << LOG_DATETIME << "errorOccurred" << code;
+        qDebug() << "  QNetworkRequest::HttpStatusCodeAttribute"
+                 << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+        qDebug() << "  QNetworkRequest::HttpReasonPhraseAttribute"
+                 << reply->attribute(QNetworkRequest::HttpReasonPhraseAttribute);
+        qDebug() << "  QNetworkRequest::SourceIsFromCacheAttribute"
+                 << reply->attribute(QNetworkRequest::SourceIsFromCacheAttribute);
+        qDebug() << "  QNetworkRequest::HttpPipeliningWasUsedAttribute"
+                 << reply->attribute(QNetworkRequest::HttpPipeliningWasUsedAttribute);
+        qDebug() << "  QNetworkRequest::SpdyWasUsedAttribute"
+                 << reply->attribute(QNetworkRequest::SpdyWasUsedAttribute);
+        qDebug() << "  QNetworkRequest::Http2WasUsedAttribute"
+                 << reply->attribute(QNetworkRequest::Http2WasUsedAttribute);
+        qDebug() << "  QNetworkRequest::OriginalContentLengthAttribute"
+                 << reply->attribute(QNetworkRequest::OriginalContentLengthAttribute).toInt();
+    });
+    connect(reply, &QNetworkReply::metaDataChanged, [=]() {
+        qDebug() << LOG_DATETIME << "metaDataChanged";
+        for (const auto &header : reply->rawHeaderPairs()) {
+            qDebug() << LOG_DATETIME << QString("  %1:%2").arg(header.first, header.second);
+        }
+    });
+    connect(reply, &QNetworkReply::preSharedKeyAuthenticationRequired,
+            [=](QSslPreSharedKeyAuthenticator *authenticator) {
+                qDebug() << LOG_DATETIME << "preSharedKeyAuthenticationRequired" << authenticator;
+            });
+    connect(reply, &QNetworkReply::redirectAllowed,
+            [=]() { qDebug() << LOG_DATETIME << "redirectAllowed"; });
+    connect(reply, &QNetworkReply::redirected,
+            [=](const QUrl &url) { qDebug() << LOG_DATETIME << "redirected" << url.toString(); });
+    connect(reply, &QNetworkReply::sslErrors, [=](const QList<QSslError> &errors) {
+        qDebug() << LOG_DATETIME << "sslErrors" << errors;
+    });
+    connect(reply, &QNetworkReply::readyRead, [=]() {
+        qDebug() << LOG_DATETIME << "readyRead";
+        qDebug() << LOG_DATETIME << "  reply->size()" << reply->size();
+        qDebug() << LOG_DATETIME << "  reply->isSequential()" << reply->isSequential();
+        qDebug() << LOG_DATETIME << "  reply->bytesAvailable()" << reply->bytesAvailable();
+    });
+
+    qDebug() << LOG_DATETIME << "reply(before)";
+    for (const auto &header : reply->rawHeaderPairs()) {
+        qDebug() << LOG_DATETIME << QString("  before %1:%2").arg(header.first, header.second);
+    }
+    qDebug() << LOG_DATETIME << "  reply->bytesToWrite()" << reply->bytesToWrite();
 }
 
 bool AccessAtProtocol::checkReply(QNetworkReply *reply)

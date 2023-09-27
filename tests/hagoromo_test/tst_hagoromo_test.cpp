@@ -45,6 +45,8 @@ private slots:
     void test_AnyProfileListModel();
     void test_AccountListModel();
     void test_TimelineListModel_text();
+    void test_PostThreadListModel();
+    void test_LoadTest();
 
 private:
     WebServer m_mockServer;
@@ -94,6 +96,26 @@ hagoromo_test::hagoromo_test()
                         json = "{}";
                         result = false;
                     }
+                } else if (request.url().path()
+                           == "/response/load/xrpc/com.atproto.repo.createRecord") {
+                    qDebug() << "receive POST" << request.url().path();
+                    json = "{\"cid\":\"CID\",\"uri\":\"URI\"}";
+                    result = true;
+                } else if (request.url().path()
+                           == "/response/load/xrpc/com.atproto.repo.uploadBlob") {
+                    qDebug() << "receive POST" << request.url().path() << request.body().length();
+                    for (const auto key : request.headers().keys()) {
+                        if (key == "Content-Length") {
+                            QVERIFY2(request.body().length() == request.headers()[key].toInt(),
+                                     QString("Content-Length=%1")
+                                             .arg(request.headers()[key].toString())
+                                             .toLocal8Bit());
+                        }
+                        qDebug() << "  " << key << request.headers()[key].toString();
+                    }
+                    json = "{\"blob\":{\"$type\":\"blob\",\"ref\":{\"$link\":\"bafkreifa3ga\"},"
+                           "\"mimeType\":\"image/jpeg\",\"size\":210678}}";
+                    result = true;
                 } else {
                     json = "{}";
                     result = false;
@@ -1414,6 +1436,60 @@ void hagoromo_test::test_RecordOperatorCreateRecord(const QByteArray &body)
                              == hash[did].value("record").toObject().value("facets"),
                      did.toLocal8Bit());
         }
+    }
+}
+
+void hagoromo_test::test_LoadTest()
+{
+    QImage img(":/data/images/image01.jpg");
+    QFileInfo file_info("file1.jpg");
+    img.save(file_info.absoluteFilePath());
+    QList<TimelineListModel *> list;
+    QList<RecordOperator *> ope_list;
+    //    for (int i = 0; i < 20; i++) {
+    //        TimelineListModel *model = new TimelineListModel(this);
+    //        model->setAccount("https://relog.tech", QString(), QString(), QString(), "dummy",
+    //                          QString());
+    //        model->setDisplayInterval(0);
+    //        //        QSignalSpy spy(model, SIGNAL(runningChanged()));
+    //        model->getLatest();
+    //        //        spy.wait();
+    //        //        QVERIFY2(spy.count() == 2,
+    //        QString("spy.count()=%1").arg(spy.count()).toUtf8()); list.append(model);
+    //    }
+    for (int i = 0; i < 1; i++) {
+        RecordOperator *ope = new RecordOperator(this);
+        ope->setAccount(m_service + "/load", "did", "handle", "email", "accessJwt", "refreshJwt");
+        ope->setText("Test post");
+        ope->setImages(QStringList()
+                               << QUrl::fromLocalFile(file_info.absoluteFilePath()).toString(),
+                       QStringList() << "image1");
+        {
+            QSignalSpy spy(ope, SIGNAL(finished(bool, const QString &, const QString &)));
+            ope->postWithImages();
+            spy.wait();
+            QVERIFY2(spy.count() == 1, QString("spy.count()=%1").arg(spy.count()).toUtf8());
+        }
+        ope_list.append(ope);
+        //        RecordOperator ope;
+        //        ope.clear();
+        //        ope.setAccount("https://relog.tech", "did", "handle", "email", "accessJwt",
+        //        "refreshJwt"); ope.setText("Test post"); ope.setImages(QStringList() <<
+        //        QUrl::fromLocalFile(file_info.absoluteFilePath()).toString(),
+        //                      QStringList() << "image1");
+        //        {
+        //            QSignalSpy spy(&ope, SIGNAL(finished(bool, const QString &, const QString
+        //            &))); ope.postWithImages(); spy.wait(); QVERIFY2(spy.count() == 1,
+        //            QString("spy.count()=%1").arg(spy.count()).toUtf8());
+        //        }
+    }
+
+    for (auto model : list) {
+        //        QVERIFY(model->rowCount() == 4);
+        model->deleteLater();
+    }
+    for (auto ope : ope_list) {
+        ope->deleteLater();
     }
 }
 
