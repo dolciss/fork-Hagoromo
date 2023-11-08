@@ -23,12 +23,14 @@ ClickableFrame {
     property alias uriLabel: uriLabel
     property alias descriptionLabel: descriptionLabel
 
+    property real thumbRatio: 0.5
+
     ColumnLayout {
         spacing: 3
         ImageWithIndicator {
             id: thumbImage
             Layout.preferredWidth: externalLinkFrame.width
-            Layout.preferredHeight: status !== Image.Null ? externalLinkFrame.width * 0.5 : 30
+            Layout.preferredHeight: status !== Image.Null ? externalLinkFrame.width * externalLinkFrame.thumbRatio : 30
             fillMode: Image.PreserveAspectCrop
         }
         Label {

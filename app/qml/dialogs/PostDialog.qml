@@ -27,6 +27,7 @@ Dialog {
 
     property string defaultAccountUuid: ""
     property string postType: "normal"  // normal, reply, quote
+    property bool lowMode: AdjustedValues.ratio > 1.7
 
     property string replyCid: ""
     property string replyUri: ""
@@ -114,7 +115,7 @@ Dialog {
         Frame {
             id: replyFrame
             Layout.preferredWidth: postText.width
-            Layout.maximumHeight: 200 * AdjustedValues.ratio
+            Layout.maximumHeight: (postDialog.lowMode ? 90 : 200) * AdjustedValues.ratio
             visible: postType === "reply"
             clip: true
             ColumnLayout {
@@ -280,13 +281,15 @@ Dialog {
         }
         ExternalLinkCard {
             Layout.preferredWidth: 400 * AdjustedValues.ratio
-            Layout.maximumHeight: 280 * AdjustedValues.ratio
+            Layout.maximumHeight: (postDialog.lowMode ? (replyFrame.visible ? 110 : 200) : 280) * AdjustedValues.ratio
             visible: externalLink.valid
 
             thumbImage.source: externalLink.thumbLocal
             uriLabel.text: externalLink.uri
             titleLabel.text: externalLink.title
             descriptionLabel.text: externalLink.description
+            descriptionLabel.visible: !postDialog.lowMode
+            thumbRatio: postDialog.lowMode ? (replyFrame.visible ? 0.2 : 0.4) : 0.5
         }
         FeedGeneratorLinkCard {
             Layout.preferredWidth: 400 * AdjustedValues.ratio
@@ -363,7 +366,7 @@ Dialog {
         Frame {
             id: quoteFrame
             Layout.preferredWidth: postText.width
-            Layout.maximumHeight: 200 * AdjustedValues.ratio
+            Layout.maximumHeight: (postDialog.lowMode ? 100 : 200) * AdjustedValues.ratio
             visible: postType === "quote"
             clip: true
             ColumnLayout {
